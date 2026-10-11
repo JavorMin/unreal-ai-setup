@@ -28,7 +28,7 @@ exit /b 1
 
 :run
 rem igncr: the script still runs if git checked it out with CRLF line endings.
-"%BASH%" -o igncr setup-vibeue.sh %*
+"%BASH%" -o igncr setup-unreal-ai.sh %*
 set RC=%ERRORLEVEL%
 pause
 exit /b %RC%

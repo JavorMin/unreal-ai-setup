@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# One-shot VibeUE + MCP bootstrap for an Unreal 5.8 / 5.7 project.
-#   setup-vibeue.sh [Project.uproject] [--agent ClaudeCode|Cursor|VSCode|Gemini|Codex|All]
-#                   [--port N] [--engine DIR] [--api-key KEY] [--no-gui] [--no-build] [--internal|--external]
+# Unreal AI Setup: one-shot VibeUE + MCP bootstrap for an Unreal 5.8 / 5.7 project, plus optional extras.
+#   setup-unreal-ai.sh [Project.uproject] [--agent ClaudeCode|Cursor|VSCode|Gemini|Codex|All]
+#                      [--port N] [--engine DIR] [--api-key KEY] [--no-gui] [--no-build] [--internal|--external]
+#                      [--extras all|none|vibe3d,metahumans,skills,claude,blender,higgsfield]
+# Extras (all by default): Vibe3D + VibeMetaHumans plugins (5.8), unreal-engine-skills (.claude/skills),
+#   Claude Code + Blender (installed only if missing), Higgsfield for Blender (installed, enabled, MCP on, added to Claude).
 # Where the agent runs (asked during setup unless passed):
 #   --internal: in the editor's Terminal panel (Terminal plugin + startup commands).
 #   --external: no in-editor Terminal; writes Start-<Project>.cmd (editor + agent in its own PowerShell window, which outlives the editor)
@@ -13,11 +16,16 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 win=0; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) win=1 ;; esac
 upath() { if [ $win = 1 ] && [ -n "$1" ]; then cygpath -u "$1"; else printf '%s' "$1"; fi; }
 wpath() { if [ $win = 1 ]; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+norm_extras() { case "$1" in all) printf '%s' "$ALL_EXTRAS" ;; none) ;; *) printf '%s' "$1" ;; esac; }
+has() { [[ ",$extras," == *",$1,"* ]]; }
+ver_ge() { [ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]; }  # ver_ge A B: A >= B
 
-agent= port= engine="${UE_ENGINE_PATH:-}" apikey= gui=$win build=1 mode= uproject=
+agent= port= engine="${UE_ENGINE_PATH:-}" apikey= gui=$win build=1 mode= uproject= extras=
+ALL_EXTRAS=vibe3d,metahumans,skills,claude,blender,higgsfield
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent) agent="$2"; shift ;;
+    --extras) extras="$2"; shift ;;
     --port) port="$2"; shift ;;
     --engine) engine="$2"; shift ;;
     --api-key) apikey="$2"; shift ;;
@@ -133,7 +141,7 @@ function Draw-Illo($g, $w, $outside) {
   }
 }
 
-$f = New-Object Windows.Forms.Form -Property @{ Text = 'VibeUE setup'; StartPosition = 'CenterScreen'; FormBorderStyle = 'FixedDialog'
+$f = New-Object Windows.Forms.Form -Property @{ Text = 'Unreal AI setup'; StartPosition = 'CenterScreen'; FormBorderStyle = 'FixedDialog'
   MaximizeBox = $false; MinimizeBox = $false; ShowIcon = $false; BackColor = (C '#242424'); ForeColor = (C '#C0C0C0'); Font = (F 9.75) }
 # Dark title bar (Windows 10 20H1+); older Windows keeps its light one.
 try {
@@ -215,6 +223,38 @@ if ($showKey) {
   $y += 86
 }
 
+# Extras: Unreal add-ons on the first row, tools (installed only if missing) on the second; details in tooltips.
+[void](Lbl $f 'Extras' 28 $y 300 20 '#FFFFFF' (F 9.75 Bold))
+$extraText = [ordered]@{
+  vibe3d = 'Vibe3D', 'Vibe3D: procedural 3D modeling tools for the agent (UE 5.8)'
+  metahumans = 'VibeMetaHumans', 'VibeMetaHumans: create, edit and animate MetaHumans (UE 5.8, beta)'
+  skills = 'Unreal skills', 'unreal-engine-skills: Unreal know-how for the agent, copied to .claude/skills'
+  claude = 'Claude Code', 'Installs Claude Code if it is missing'
+  blender = 'Blender', 'Installs the latest Blender if it is missing'
+  higgsfield = 'Higgsfield for Blender', 'Installs the Higgsfield add-on, turns on its MCP control and adds it to Claude Code'
+}
+$tip = New-Object Windows.Forms.ToolTip
+$checks = [ordered]@{}; $i = 0
+foreach ($k in $extraText.Keys) {
+  $only58 = ($k -in 'vibe3d', 'metahumans') -and $ver -ne '5.8'
+  # A 5.8-only box on 5.7 stays enabled but can't be ticked: a disabled one gets Windows' engraved text.
+  $cb = Add $f CheckBox (28 + ($i % 3) * 188) ($y + 24 + [math]::Floor($i / 3) * 28) 184 24 @{ Text = $extraText[$k][0]; Font = (F 10)
+    ForeColor = (C $(if ($only58) { '#575757' } else { '#FFFFFF' })); BackColor = [Drawing.Color]::Transparent
+    Cursor = $(if ($only58) { 'Default' } else { 'Hand' }); AutoCheck = (-not $only58)
+    Checked = ((-not $only58) -and (",$env:VUE_EXTRAS," -like "*,$k,*")) }
+  # Same treatment as the radios: the native (blue) box repainted in the theme.
+  $cb.Add_Paint({ param($s, $e) $g = $e.Graphics; $g.SmoothingMode = 'AntiAlias'
+    $g.FillRectangle((New-Object Drawing.SolidBrush $s.Parent.BackColor), 0, 0, 16, $s.Height)
+    $t = [float]($s.Height / 2 - 6)
+    if ($s.Checked) {
+      $g.FillRectangle((B $accent), [float]1, $t, [float]12, [float]12)
+      $g.DrawLines((P '#FFFFFF' 1.6), [Drawing.PointF[]](Pts 3.5, ($t + 6), 6, ($t + 8.5), 10.5, ($t + 3.5)))
+    } else { $g.DrawRectangle((P $(if ($s.AutoCheck) { '#C0C0C0' } else { '#575757' }) 1.5), [float]1, $t, [float]12, [float]12) } })
+  $tip.SetToolTip($cb, $extraText[$k][1]); $checks[$k] = $cb; $i++
+}
+[void](Lbl $f ($(if ($ver -ne '5.8') { 'Vibe3D and VibeMetaHumans need UE 5.8. ' }) + 'Tools are installed only if missing. Hover for details.') 28 ($y + 82) 544 20)
+$y += 108
+
 # Footer
 $foot = Add $f Panel 0 ($y + 4) 600 72 @{ BackColor = (C '#1A1A1A') }
 $foot.Add_Paint({ param($s, $e) $g = $e.Graphics; $g.SmoothingMode = 'AntiAlias'
@@ -250,14 +290,17 @@ $f.ActiveControl = $ok
 
 if ($f.ShowDialog() -ne 'OK') { exit 1 }
 "AGENT=$($agents[$combo.SelectedItem])"; "MODE=$script:mode"; "PORT=$($port.Text)"; "ENGINE=$($eng.Text)"; "APIKEY=$(if ($key) { $key.Text })"
+"EXTRAS=$(@($checks.Keys | Where-Object { $checks[$_].Checked }) -join ',')"
 PS
   out="$(VUE_AGENT="${agent:-ClaudeCode}" VUE_MODE="$mode" VUE_PORT="${port:-$defport}" VUE_ENGINE="$( [ -n "$engine" ] && wpath "$engine")" \
-    VUE_APIKEY="$apikey" VUE_SHOWKEY=$showkey VUE_NAME="$name" VUE_VER="$guess" VUE_BUILD=$build powershell -NoProfile -STA -ExecutionPolicy Bypass -File "$(wpath "$ps1")")" \
+    VUE_APIKEY="$apikey" VUE_SHOWKEY=$showkey VUE_NAME="$name" VUE_VER="$guess" VUE_BUILD=$build \
+    VUE_EXTRAS="$(norm_extras "${extras:-all}")" powershell -NoProfile -STA -ExecutionPolicy Bypass -File "$(wpath "$ps1")")" \
     || { rm -f "$ps1"; die "cancelled"; }
   rm -f "$ps1"
   while IFS='=' read -r k v; do
     v="${v%$'\r'}"
-    case "$k" in AGENT) agent="$v" ;; MODE) mode="$v" ;; PORT) port="$v" ;; ENGINE) engine="$(upath "$v")" ;; APIKEY) apikey="$v" ;; esac
+    case "$k" in AGENT) agent="$v" ;; MODE) mode="$v" ;; PORT) port="$v" ;; ENGINE) engine="$(upath "$v")" ;; APIKEY) apikey="$v" ;;
+      EXTRAS) extras="${v:-none}" ;; esac
   done <<< "$out"
 else
   ask() { # ask VAR label default -- keeps a value passed as a flag, takes the default when stdin isn't a terminal
@@ -271,6 +314,7 @@ else
   ask port "Port" "$defport"
   ask engine "Engine path" "$engine"; engine="$(upath "$engine")"
   [ $showkey = 1 ] && ask apikey "VibeUE API key (required on 5.7 for tool execution)" ""
+  ask extras "Extras ($ALL_EXTRAS, all or none)" all
 fi
 
 case "$agent" in ClaudeCode|Cursor|VSCode|Gemini|Codex|All) ;; *) die "unknown agent '$agent'" ;; esac
@@ -283,6 +327,13 @@ case "$ver" in 5.8) branch=5-8 ;; 5.7) branch=5-7 ;; *) die "engine $ver is not 
 [ "$ver" = "$assoc" ] || echo "WARNING: $name.uproject is associated with '$assoc' but the engine is $ver"
 [ "$ver" = 5.7 ] && [ -z "$apikey" ] && echo "WARNING: no VibeUE API key — 5.7 tool execution needs one (Project Settings > Plugins > VibeUE)"
 case "$agent" in ClaudeCode|All) cli=claude ;; Gemini) cli=gemini ;; Codex) cli=codex ;; *) cli= ;; esac
+extras="$(norm_extras "${extras:-all}")" keep=
+for x in ${extras//,/ }; do
+  case ",$ALL_EXTRAS," in *",$x,"*) ;; *) die "unknown extra '$x' (use $ALL_EXTRAS, all or none)" ;; esac
+  case "$x" in vibe3d|metahumans) [ "$ver" = 5.8 ] || { echo "NOTE: $x needs UE 5.8; skipped."; continue; } ;; esac
+  keep+="${keep:+,}$x"
+done
+extras="$keep"
 
 # VibeUE ships no binaries, so building needs MSVC (VS 2022 17.8+ / VS 2026, Community or Build Tools).
 # Checked before any long-running step so a fresh PC finds out (and can install) up front.
@@ -301,6 +352,36 @@ if [ $build = 1 ] && [ $win = 1 ] && [ -z "$(msvc)" ]; then
   [ -n "$(msvc)" ] || die "no C++ toolchain. Install Visual Studio 2022 with 'Game development with C++' (https://visualstudio.microsoft.com/downloads/) and re-run, or pass --no-build."
 fi
 
+# Extras' tools, installed only when missing. Claude Code: Anthropic's native installer (~/.local/bin, no admin),
+# which also makes sure new terminals (the editor's Terminal panel, the Start window) find it on the user PATH.
+if [ $win = 1 ] && has claude && ! command -v claude >/dev/null; then
+  echo "Installing Claude Code..."
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex; \$b = Join-Path \$HOME '.local\bin'; \$p = [Environment]::GetEnvironmentVariable('Path', 'User'); if ((';' + \$p + ';') -notlike ('*;' + \$b + ';*')) { [Environment]::SetEnvironmentVariable('Path', \$p + ';' + \$b, 'User') }" \
+    || echo "NOTE: installing Claude Code failed; see https://code.claude.com/docs/en/setup"
+fi
+command -v claude >/dev/null || [ ! -f "$HOME/.local/bin/claude.exe" ] || PATH="$HOME/.local/bin:$PATH"
+
+# Blender: the newest "Blender X.Y" under Program Files (where the installer and winget put it), else one on PATH.
+# Higgsfield needs 5.1+, so an older Blender gets the latest one installed next to it.
+find_blender() {
+  blender="$(printf '%s\n' "$(cygpath -F 38)"/Blender\ Foundation/Blender\ */blender.exe | sort -V | tail -1)"
+  [ -f "$blender" ] || blender="$(command -v blender || true)"
+  bver=; [ -z "$blender" ] || bver="$("$blender" --version 2>/dev/null | sed -n 's/^Blender \([0-9][0-9.]*\)\..*/\1/p' || true)"
+}
+blender= bver=
+if [ $win = 1 ] && { has blender || has higgsfield; }; then
+  find_blender
+  if [ -z "$blender" ] || { has higgsfield && ! ver_ge "${bver:-0}" 5.1; }; then
+    if command -v winget >/dev/null; then
+      echo "Installing the latest Blender with winget..."
+      winget install -e --id BlenderFoundation.Blender --source winget --accept-package-agreements --accept-source-agreements || true
+      find_blender
+    fi
+  fi
+  if [ -n "$blender" ]; then echo "Blender: $(wpath "$blender") ($bver)"
+  else echo "NOTE: Blender was not found or installed; get it from https://www.blender.org/download/"; fi
+fi
+
 py="$engine/Engine/Binaries/ThirdParty/Python3/Win64/python.exe"
 [ -f "$py" ] || py=python3
 
@@ -314,10 +395,34 @@ else
   echo "VibeUE already present: $plugin"
 fi
 
+# 4b. Extras: the 5.8 toolset plugins next to VibeUE (source only, built with the project), and the skills repo for
+# this engine version in Saved/ (git-ignored scratch; its skills get copied into .claude/skills below).
+extra_plugins=
+for x in vibe3d:Vibe3D metahumans:VibeMetaHumans; do
+  has "${x%%:*}" || continue
+  n="${x#*:}" dir=
+  for f in Plugins/*/"$n".uplugin; do [ -f "$f" ] && dir="$(dirname "$f")"; done
+  if [ -z "$dir" ]; then
+    dir="Plugins/$n"
+    git clone --depth 1 "https://github.com/kevinpbuckley/$n.git" "$dir"
+  else
+    echo "$n already present: $dir"
+  fi
+  extra_plugins+="${extra_plugins:+,}$n:$dir"
+done
+skills=
+if has skills; then
+  skills=Saved/UnrealAI/unreal-engine-skills
+  rm -rf "$skills"
+  # master is the 5.8 line (the 5.8 branch plus newer skills); 5.7 has its own branch.
+  git clone -q --depth 1 -b "$( [ "$ver" = 5.8 ] && echo master || echo "$ver")" https://github.com/kevinpbuckley/unreal-engine-skills.git "$skills"
+fi
+
 # 5-9. File edits (.uproject, ini, MCP client configs, agent guide, .gitignore)
 changed="$(VUE_PROJ="$(wpath "$proj")" VUE_UPROJECT="$name.uproject" VUE_VER="$ver" VUE_AGENT="$agent" \
-  VUE_PORT="$port" VUE_APIKEY="$apikey" VUE_PLUGIN="$plugin" VUE_CLI="$cli" VUE_EXTERNAL=$external "$py" - <<'PY'
-import json, os, re, shutil, sys
+  VUE_PORT="$port" VUE_APIKEY="$apikey" VUE_PLUGIN="$plugin" VUE_CLI="$cli" VUE_EXTERNAL=$external \
+  VUE_EXTRA_PLUGINS="$extra_plugins" VUE_SKILLS="$skills" "$py" - <<'PY'
+import glob, json, os, re, shutil, sys
 
 E = os.environ
 proj, ver, agent, plugin = E['VUE_PROJ'], E['VUE_VER'], E['VUE_AGENT'], E['VUE_PLUGIN']
@@ -381,16 +486,20 @@ def ini_upsert(rel, section, kv):
             end += 1
     write(rel, nl.join(lines) + nl)
 
-# 5. .uproject plugins (VibeUE.uplugin declares the rest; 5.7 needs none)
+# 5. .uproject plugins (VibeUE.uplugin declares the rest; 5.7 needs none). The extras' plugins are
+# EnabledByDefault false, so they need an entry; VibeMetaHumans' README asks for an editor-only one.
 external = E['VUE_EXTERNAL'] == '1'
+extra = dict(x.split(':', 1) for x in E['VUE_EXTRA_PLUGINS'].split(',') if x)  # name -> folder
+EXTRA_ENTRY = {'VibeMetaHumans': {'TargetAllowList': ['Editor']}}
 def enable_plugins(d):
     plugins = d.setdefault('Plugins', [])
-    for name, on in (('ModelContextProtocol', True), ('AllToolsets', True), ('EditorToolset', True), ('Terminal', not external)):
+    wanted = [('ModelContextProtocol', True), ('AllToolsets', True), ('EditorToolset', True), ('Terminal', not external)]
+    for name, on in wanted + [(n, True) for n in extra]:
         entry = next((p for p in plugins if p.get('Name') == name), None)
         if entry:
             entry['Enabled'] = on
         elif on:
-            plugins.append({'Name': name, 'Enabled': True})
+            plugins.append({'Name': name, 'Enabled': True, **EXTRA_ENTRY.get(name, {})})
 if ver == '5.8':
     json_edit(E['VUE_UPROJECT'], enable_plugins)
 
@@ -462,9 +571,35 @@ for rel in dict.fromkeys(AGENTS[a][3] for a in chosen):
             new = old[:b] + block + ('' if e < 0 else old[e + len(END):].removeprefix('\n'))
     write(rel, new)
 
-# 9. .gitignore (UE generated folders + the upstream plugin clone)
+# 8b. unreal-engine-skills -> .claude/skills/<name>/. The repo nests skills by category, Claude Code looks one level
+# deep. A changed skill replaces its folder (the repo's own update advice); unchanged ones are left alone.
+def tree(root):
+    files = {}
+    for dirpath, _, names in os.walk(root):
+        for n in names:
+            with open(os.path.join(dirpath, n), 'rb') as f:
+                files[os.path.relpath(os.path.join(dirpath, n), root)] = f.read()
+    return files
+skill_names = []
+if E['VUE_SKILLS']:
+    updated = 0
+    for md in sorted(glob.glob(os.path.join(proj, E['VUE_SKILLS'], 'skills', '*', '*', 'SKILL.md'))):
+        src = os.path.dirname(md)
+        skill_names.append(os.path.basename(src))
+        dst = os.path.join(proj, '.claude', 'skills', skill_names[-1])
+        if tree(src) != tree(dst):
+            shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree(src, dst)
+            updated += 1
+    if updated:
+        changed.append(f'.claude/skills/ ({updated} Unreal skills)')
+
+# 9. .gitignore (UE generated folders + the upstream clones; re-run setup to fetch them again)
 IGNORE = ['Binaries/', 'Build/', 'DerivedDataCache/', 'Intermediate/', 'Saved/', '.vs/', '*.VC.db', '*.opensdf',
           '*.opendb', '*.sdf', '*.sln', '*.suo', '*.xcodeproj', '*.xcworkspace', f'/{plugin}/']
+IGNORE += [f'/{d}/' for d in extra.values()]
+if skill_names:  # current skills all start with ue-; the 5.7 branch predates the prefix, so those are listed
+    IGNORE += ['/.claude/skills/ue-*/'] + [f'/.claude/skills/{n}/' for n in skill_names if not n.startswith('ue-')]
 old = read('.gitignore') or ''
 have = {l.strip() for l in old.splitlines()}
 missing = [l for l in IGNORE if l not in have]
@@ -487,11 +622,65 @@ PY
   fi
 } || echo "NOTE: git step failed (see above); continuing."
 
+# 9b. Higgsfield for Blender: the extension from Higgsfield's update manifest (what the add-on's own updater reads),
+# installed + enabled, its "Enable MCP control" preference on (off by default), and its bridge registered with
+# Claude Code. Signing in (in Blender, then in Claude's /mcp) is a one-time browser step, listed at the end.
+HF_MOD=bl_ext.user_default.higgsfield_blender HF_MCP=https://bridge.higgsfield.ai/mcp
+hf_login= hf_auth=
+if has higgsfield && [ $win = 1 ]; then
+  if [ -z "$blender" ] || ! ver_ge "$bver" 5.1; then
+    echo "NOTE: Higgsfield for Blender needs Blender 5.1 or newer; skipped."
+  else
+    m="$(curl -fsSL https://hf-adobe-updates.higgsfield.ai/blender/manifest.json \
+      | "$py" -c 'import json, sys; m = json.load(sys.stdin); print(m["version"], m["zip"]["url"], m["zip"]["sha256"])')" \
+      || die "could not read Higgsfield's download manifest (internet access?); re-run, or untick Higgsfield"
+    read -r hfver hfurl hfsha <<< "${m%$'\r'}"
+    # BLENDER_USER_RESOURCES: Blender's own override of the per-version user folder.
+    hfdir="$(upath "${BLENDER_USER_RESOURCES:-${APPDATA:-}\\Blender Foundation\\Blender\\$bver}")/extensions/user_default/higgsfield_blender"
+    hf_install() {
+      local tmp zip; tmp="$(mktemp -d)"; zip="$tmp/higgsfield_blender-$hfver.zip"
+      echo "Downloading Higgsfield for Blender $hfver (about 280 MB)..."
+      curl -fL --progress-bar -o "$zip" "$hfurl" || { rm -rf "$tmp"; die "Higgsfield download failed; re-run setup"; }
+      echo "$hfsha *$zip" | sha256sum -c --status || { rm -rf "$tmp"; die "the Higgsfield download is corrupt (sha256 mismatch); re-run setup"; }
+      "$blender" --command extension install-file -r user_default -e "$(wpath "$zip")" || { rm -rf "$tmp"; die "Blender could not install the Higgsfield extension (output above)"; }
+      rm -rf "$tmp"
+    }
+    # Headless: enabled add-ons and user preferences load in -b, so the opt-in can be set and saved here.
+    hf_enable() {
+      local out; out="$("$blender" -b --python-expr "import bpy, addon_utils
+m = '$HF_MOD'
+dirty = m not in bpy.context.preferences.addons
+if dirty: addon_utils.enable(m, default_set=True)
+p = bpy.context.preferences.addons[m].preferences
+if not p.mcp_enabled: p.mcp_enabled = dirty = True
+if dirty: bpy.ops.wm.save_userpref()
+print('HF_OK')" 2>&1 || true)"
+      case "$out" in *HF_OK*) ;; *) echo "$out" | grep -v '^Blender \|^$\|Blender quit' | tail -5; return 1 ;; esac
+    }
+    have="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$hfdir/blender_manifest.toml" 2>/dev/null || true)"
+    if [ -n "$have" ] && ver_ge "$have" "$hfver"; then echo "Higgsfield for Blender $have already installed."; else have=; hf_install; fi
+    # An install that was cut short looks installed but won't load: install it once more.
+    hf_enable || { [ -n "$have" ] && echo "Higgsfield for Blender does not load; reinstalling it." && hf_install && hf_enable; } \
+      || die "could not enable Higgsfield in Blender (output above)"
+    echo "Higgsfield for Blender: enabled, MCP control on."
+    [ -f "$(upath "${LOCALAPPDATA:-}")/Higgsfield/Blender/Data/auth.json" ] || hf_login=1
+    if command -v claude >/dev/null; then
+      if ! claude mcp get higgsfield >/dev/null 2>&1; then
+        claude mcp add --transport http --scope user higgsfield "$HF_MCP"
+      fi
+      claude mcp get higgsfield 2>/dev/null | grep -q 'Status:.*Connected' || hf_auth=1
+    else
+      echo "NOTE: Claude Code is not installed; add the Higgsfield connector to your agent by hand: $HF_MCP"
+    fi
+  fi
+fi
+
 echo
 echo "Project : $uproject"
 echo "Engine  : $engine ($ver)"
 echo "Agent   : $agent"
 echo "MCP url : http://127.0.0.1:$port/mcp"
+echo "Extras  : ${extras:-(none)}"
 echo "Changed : ${changed:-(nothing)}" | sed '2,$s/^/          /'
 
 # 10. --external: a double-click launcher that opens the editor plus the agent in its own PowerShell window.
@@ -502,7 +691,7 @@ if [ $external = 1 ] && [ $win = 1 ]; then
   launcher="Start-$name.cmd"
   waitmcp="Write-Host 'Waiting for the Unreal MCP server on port $port (Ctrl+C to skip)...'; while (\$true) { try { (New-Object Net.Sockets.TcpClient '127.0.0.1', $port).Close(); break } catch { Start-Sleep 2 } }"
   printf '%s\r\n' '@echo off' \
-    "rem Generated by setup-vibeue --external: opens the editor and a ${cli:-PowerShell} window for this project." \
+    "rem Generated by setup-unreal-ai --external: opens the editor and a ${cli:-PowerShell} window for this project." \
     'cd /d "%~dp0"' \
     "start \"\" \"$(wpath "$engine/Engine/Binaries/Win64/UnrealEditor.exe")\" \"%~dp0$name.uproject\"" \
     "start \"Unreal agent - $name\" powershell -NoExit -ExecutionPolicy Bypass -Command \"$waitmcp; $cli\"" > "$launcher"
@@ -565,10 +754,15 @@ else
   # UBT refuses to build while any editor of this engine has Live Coding on (the lock is on the shared UnrealEditor.exe,
   # HotReload.cs). An installed engine only builds into this project, so another open project is safe: skip the check.
   nolc=; [ -f "$engine/Engine/Build/InstalledBuild.txt" ] && nolc=-NoHotReloadFromIDE
+  # Known build breakers, named in the failure message: VibeMetaHumans is a fresh beta (say how to leave it out),
+  buildhint=; has metahumans && buildhint=". If the errors are in VibeMetaHumans (beta), remove it from $name.uproject and re-run without it (untick it, or --extras without metahumans)"
+  # Smart App Control blocks the rules DLLs UBT compiles on the fly ("An Application Control policy has blocked this file").
+  MSYS_NO_PATHCONV=1 reg query 'HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy' /v VerifiedAndReputablePolicyState 2>/dev/null \
+    | grep -q 'REG_DWORD *0x1' && buildhint+=". Windows Smart App Control is on; if the log says 'An Application Control policy has blocked this file', Unreal can't build on this PC until it is turned off (Windows Security > App & browser control)"
   # Via PowerShell: Git Bash cannot run a .bat whose path has spaces (default C:\Program Files\Epic Games\...).
   VUE_BAT="$(wpath "$engine/Engine/Build/BatchFiles/Build.bat")" VUE_TARGET="$target" VUE_PROJARG="$projarg" VUE_NOLC="$nolc" \
     powershell -NoProfile -ExecutionPolicy Bypass -Command '$x = @($env:VUE_NOLC) -ne ""; & $env:VUE_BAT $env:VUE_TARGET Win64 Development $env:VUE_PROJARG -waitmutex @x; exit $LASTEXITCODE' \
-    || die "build failed (close this project's editor; with a source-built engine close every editor of it -- Live Coding blocks builds -- then re-run); UBT log: $(wpath "${LOCALAPPDATA:-}")\\UnrealBuildTool\\Log.txt"
+    || die "build failed (close this project's editor; with a source-built engine close every editor of it -- Live Coding blocks builds -- then re-run); UBT log: $(wpath "${LOCALAPPDATA:-}")\\UnrealBuildTool\\Log.txt$buildhint"
   if [ -n "$launcher" ]; then
     cmd //c "$launcher"
   else
@@ -577,4 +771,19 @@ else
       powershell -NoProfile -Command 'Start-Process -FilePath $env:VUE_EXE -ArgumentList ([char]34 + $env:VUE_UPROJECT + [char]34)'
   fi
   echo "Editor launching; ready when Saved/VibeUE/Signals/editor-<pid>-true.json appears."
+  # Blender opens only while Higgsfield still needs its one-time sign-in (the bridge connects once signed in).
+  [ -z "$hf_login" ] || VUE_EXE="$(wpath "$blender")" powershell -NoProfile -Command 'Start-Process -FilePath $env:VUE_EXE'
+fi
+
+# 13. What only the user can do: browser sign-ins and an optional Epic download.
+if has metahumans; then
+  echo "NOTE: VibeMetaHumans: MetaHuman Creator presets and wardrobe need 'MetaHuman Creator Core Data'"
+  echo "      (Epic Games Launcher > Library > UE $ver > Options)."
+fi
+if [ -n "$hf_login$hf_auth" ]; then
+  echo
+  echo "Finish connecting Higgsfield (one time):"
+  [ -z "$hf_login" ] || echo "  - In Blender: press N in the 3D viewport > Higgsfield tab > Sign in. MCP then shows 'Connected'."
+  [ -z "$hf_auth" ] || echo "  - In Claude Code: run /mcp, pick 'higgsfield' and Authenticate with the same Higgsfield account."
+  echo "  Keep Blender open while the agent uses it."
 fi
