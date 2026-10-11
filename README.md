@@ -4,7 +4,11 @@ One-click setup that turns a freshly created Unreal Engine 5.8 (or 5.7) project 
 can drive through MCP. It clones the [VibeUE](https://github.com/kevinpbuckley/VibeUE) plugin, enables
 the engine's MCP plugins, writes the MCP server and client settings, builds the plugin and opens the
 editor. It replaces about ten manual steps (clone plugin, enable plugins, editor preferences, console
-commands, build, git) with one double-click.
+commands, build, git) with one double-click. With the extras, the same agent can drive Blender too.
+
+> **Renamed:** this project used to be `unreal-mcp-setup`, with the scripts `setup-vibeue.cmd` and
+> `setup-vibeue.sh`. Old links redirect here. If you copied the old scripts into a project, replace
+> them with `setup-unreal-ai.cmd` and `setup-unreal-ai.sh` and run the setup again.
 
 It can also set up these **extras**. All of them are on by default, and you can turn each one off:
 
@@ -16,6 +20,17 @@ It can also set up these **extras**. All of them are on by default, and you can 
 | Claude Code | Installed if it is missing |
 | Blender | The latest version, installed if it is missing |
 | [Higgsfield for Blender](https://higgsfield.ai/plugins/blender) | The Higgsfield add-on installed and enabled in Blender, with its MCP control on and its connector added to Claude Code, so the agent can drive Blender too |
+
+How it all connects:
+
+```mermaid
+flowchart LR
+  A["Claude Code<br/>(your agent)"] -- "unreal-mcp<br/>http://127.0.0.1:8000/mcp" --> U["Unreal Editor<br/>VibeUE · Vibe3D · VibeMetaHumans"]
+  A -- "higgsfield<br/>https://bridge.higgsfield.ai/mcp" --> B["Blender<br/>Higgsfield add-on"]
+```
+
+The agent reaches an app only while that app is open. The Unreal MCP server listens only on your own
+machine. The Higgsfield bridge goes through your Higgsfield account.
 
 You choose where the agent runs:
 
